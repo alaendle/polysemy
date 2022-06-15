@@ -132,6 +132,7 @@ test-suite polysemy-test
   main-is: Main.hs
   other-modules:
       AlternativeSpec
+      AsyncSpec
       BracketSpec
       DoctestSpec
       ErrorSpec

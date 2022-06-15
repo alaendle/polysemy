@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module Polysemy.Async
   ( -- * Effect
@@ -14,8 +15,10 @@ module Polysemy.Async
 
     -- * Interpretations
   , asyncToIOFinal
+  , runAsync
   ) where
 
+import           Data.Kind (Type)
 import qualified Control.Concurrent.Async as A
 import           Polysemy
 import           Polysemy.Final
@@ -29,10 +32,10 @@ import           Polysemy.Final
 -- 'Polysemy.Error.Error' effect didn't fail locally.
 --
 -- @since 0.5.0.0
-data Async m a where
-  Async :: m a -> Async m (A.Async (Maybe a))
-  Await :: A.Async a -> Async m a
-  Cancel :: A.Async a -> Async m ()
+data Async (h :: Type -> Type) m a where
+  Async :: m a -> Async h m (h (Maybe a))
+  Await :: h a -> Async h m a
+  Cancel :: h a -> Async h m ()
 
 makeSem ''Async
 
@@ -41,9 +44,9 @@ makeSem ''Async
 -- | Perform a sequence of effectful actions concurrently.
 --
 -- @since 1.2.2.0
-sequenceConcurrently :: forall t r a. (Traversable t, Member Async r) =>
+sequenceConcurrently :: forall t h r a. (Traversable t, Member (Async h) r) =>
     t (Sem r a) -> Sem r (t (Maybe a))
-sequenceConcurrently t = traverse async t >>= traverse await
+sequenceConcurrently t = traverse (async @h) t >>= traverse await
 {-# INLINABLE sequenceConcurrently #-}
 
 ------------------------------------------------------------------------------
@@ -55,7 +58,7 @@ sequenceConcurrently t = traverse async t >>= traverse await
 --
 -- @since 1.2.0.0
 asyncToIOFinal :: Member (Final IO) r
-               => Sem (Async ': r) a
+               => Sem (Async A.Async ': r) a
                -> Sem r a
 asyncToIOFinal = interpretFinal $ \case
   Async m -> do
@@ -66,3 +69,22 @@ asyncToIOFinal = interpretFinal $ \case
   Cancel a -> liftS (A.cancel a)
 {-# INLINE asyncToIOFinal #-}
 
+------------------------------------------------------------------------------
+-- | Run an 'Async' effect purely.
+--
+-- @since 1.8.0.0
+runAsync
+  :: Sem (Async (Sem r) ': r) a
+  -> Sem r a
+runAsync = interpretH
+    ( \case
+      Async ma -> do
+        is <- getInitialStateT
+        ins <- getInspectorT
+        sem <- runAsync <$> runT ma
+        pure (inspect ins <$> sem <$ is)
+      Await sem ->
+        pureT =<< raise sem
+      Cancel _ -> pureT ()
+    )
+{-# INLINE runAsync #-}

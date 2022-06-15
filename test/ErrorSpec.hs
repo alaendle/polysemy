@@ -1,5 +1,6 @@
 module ErrorSpec where
 
+import qualified Control.Concurrent.Async as A
 import qualified Control.Exception as X
 import           Polysemy
 import           Polysemy.Async
@@ -47,10 +48,10 @@ spec = parallel $ do
 
     it "should propagate errors thrown in 'async'" $ do
       res1 <- runFinal $ errorToIOFinal @() $ asyncToIOFinal $ do
-        a <- async $ throw ()
+        a <- async @A.Async $ throw ()
         await a
       res1 `shouldBe` (Left () :: Either () (Maybe ()))
       res2 <- runFinal $ errorToIOFinal @() $ asyncToIOFinal $ do
-        a <- async $ throw ()
+        a <- async @A.Async $ throw ()
         await a `catch` \() -> return $ Just ()
       res2 `shouldBe` Right (Just ())
